@@ -1,0 +1,285 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="initial-scale=1,maximum-scale=1,user-scalable=no" />
+  <title>Timezones + Countries — Starter</title>
+
+  <link href="https://unpkg.com/maplibre-gl/dist/maplibre-gl.css" rel="stylesheet" />
+  <style>
+    body, html { height:100%; margin:0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
+    #map { position:fixed; inset:0; }
+    .maplibregl-popup-content {
+      padding: 12px 15px;
+      font-size: 13px;
+      line-height: 1.5;
+      min-width: 200px;
+    }
+    .maplibregl-popup-content strong {
+      font-size: 14px;
+      color: #333;
+      display: block;
+      margin-bottom: 8px;
+    }
+    .info-line {
+      margin: 4px 0;
+      color: #555;
+    }
+    .info-label {
+      font-weight: 600;
+      color: #666;
+    }
+  </style>
+</head>
+<body>
+  <div id="map"></div>
+
+  <script src="https://unpkg.com/maplibre-gl/dist/maplibre-gl.js"></script>
+  <script src="https://unpkg.com/pmtiles@3.0.7/dist/pmtiles.js"></script>
+
+  <script>
+    // -------------- CONFIG --------------
+    const PMTILES_URL = 'world_v3.pmtiles';
+    const LAYER = 'countries';   // combined layer with both timezones and countries
+    const TIMEZONE_OPACITY = 0.65;
+    // ------------------------------------
+
+    // Generate color based on work_hours_CET string
+    function getColorForWorkHours(workHours) {
+      if (!workHours) return '#888888';
+      
+      // Extract start hour from work_hours_CET (e.g., "09:00-17:00" -> 9)
+      const match = workHours.match(/^(\d{2}):(\d{2})/);
+      if (!match) return '#888888';
+      
+      const startHour = parseInt(match[1]);
+      const startMinute = parseInt(match[2]);
+      const decimalHour = startHour + (startMinute / 60);
+      
+      // Create a color gradient based on start time (0-24 hours)
+      // Use HSL color space for smooth transitions
+      const hue = (decimalHour / 24) * 360;
+      return `hsl(${hue}, 70%, 55%)`;
+    }
+
+    // add pmtiles protocol handler to MapLibre
+    const protocol = new pmtiles.Protocol();
+    maplibregl.addProtocol('pmtiles', protocol.tile);
+
+    // build map with PMTiles vector source
+    const map = new maplibregl.Map({
+      container: 'map',
+      style: {
+        version: 8,
+        sources: {
+          world: {
+            type: 'vector',
+            // pmtiles:// allows the pmtiles protocol handler to fetch
+            url: 'pmtiles://' + PMTILES_URL,
+            // Use tzid as the feature ID for feature-state
+            promoteId: 'tzid'
+          }
+        },
+        layers: [
+          // timezone polygons (only features with tzid) - color based on work_hours_CET
+          {
+            id: 'timezones-fill',
+            type: 'fill',
+            source: 'world',
+            'source-layer': LAYER,
+            filter: ['has', 'tzid'],  // Only show features with timezone data
+            paint: {
+              'fill-color': [
+                'interpolate',
+                ['linear'],
+                ['to-number', ['slice', ['get', 'work_hours_CET'], 0, 2]],
+                0, '#d32f2f',    // red (midnight)
+                3, '#e91e63',    // pink
+                6, '#9c27b0',    // purple
+                9, '#673ab7',    // deep purple (9am - CET reference)
+                12, '#3f51b5',   // indigo (noon)
+                15, '#2196f3',   // blue
+                18, '#00bcd4',   // cyan (6pm)
+                21, '#009688',   // teal (9pm)
+                22, '#ff5722'    // deep orange (10pm)
+              ],
+              'fill-opacity': TIMEZONE_OPACITY
+            }
+          },
+          // country borders (features without tzid)
+          {
+            id: 'countries-line',
+            type: 'line',
+            source: 'world',
+            'source-layer': LAYER,
+            filter: ['!', ['has', 'tzid']],  // Only show features without timezone data
+            paint: {
+              'line-color': 'rgba(100,100,100,0.3)',
+              'line-width': 0.5
+            }
+          },
+          // timezone borders
+          {
+            id: 'timezones-line',
+            type: 'line',
+            source: 'world',
+            'source-layer': LAYER,
+            filter: ['has', 'tzid'],
+            paint: {
+              'line-color': 'rgba(255,255,255,0.5)',
+              'line-width': 0.8
+            }
+          },
+          // highlight layer for hover using feature-state
+          {
+            id: 'timezones-highlight',
+            type: 'line',
+            source: 'world',
+            'source-layer': LAYER,
+            paint: {
+              'line-color': '#ffffff',
+              'line-width': [
+                'case',
+                ['boolean', ['feature-state', 'hover'], false],
+                3,
+                0
+              ],
+              'line-opacity': 0.9
+            }
+          }
+        ]
+      },
+      center: [0, 20],
+      zoom: 2
+    });
+
+    // Current popup reference
+    let currentPopup = null;
+    let hoveredFeatureId = null;
+
+    map.on('load', () => {
+      map.getCanvas().style.cursor = 'default';
+    });
+
+    // Hover effect - use feature-state for performance
+    map.on('mousemove', 'timezones-fill', (e) => {
+      if (e.features.length > 0) {
+        const feature = e.features[0];
+        const featureId = feature.id;
+        
+        // Skip features without valid IDs (countries without timezone data)
+        if (!featureId) {
+          if (hoveredFeatureId !== null) {
+            map.setFeatureState(
+              { source: 'world', sourceLayer: LAYER, id: hoveredFeatureId },
+              { hover: false }
+            );
+            hoveredFeatureId = null;
+          }
+          map.getCanvas().style.cursor = 'default';
+          return;
+        }
+        
+        map.getCanvas().style.cursor = 'pointer';
+        
+        // Only update if hovering a different feature
+        if (featureId !== hoveredFeatureId) {
+          // Remove hover state from previous feature
+          if (hoveredFeatureId !== null) {
+            map.setFeatureState(
+              { source: 'world', sourceLayer: LAYER, id: hoveredFeatureId },
+              { hover: false }
+            );
+          }
+          
+          // Set hover state on new feature
+          hoveredFeatureId = featureId;
+          map.setFeatureState(
+            { source: 'world', sourceLayer: LAYER, id: featureId },
+            { hover: true }
+          );
+        }
+      }
+    });
+
+    // Remove highlight when leaving
+    map.on('mouseleave', 'timezones-fill', () => {
+      map.getCanvas().style.cursor = 'default';
+      
+      if (hoveredFeatureId !== null) {
+        map.setFeatureState(
+          { source: 'world', sourceLayer: LAYER, id: hoveredFeatureId },
+          { hover: false }
+        );
+        hoveredFeatureId = null;
+      }
+    });
+
+    // Click to show popup with detailed info
+    map.on('click', 'timezones-fill', (e) => {
+      if (e.features.length === 0) return;
+      
+      const feature = e.features[0];
+      const props = feature.properties || {};
+      
+      // Get timezone info
+      const tzid = props.tzid || 'Unknown';
+      const work = props.work_hours_CET || 'N/A';
+      const utc = props.UTC;
+      const countryName = props.name || '';
+      
+      // Format UTC offset with sign
+      const utcFormatted = (utc !== null && utc !== undefined)
+        ? `UTC${parseInt(utc) >= 0 ? '+' : ''}${utc}` 
+        : 'N/A';
+      
+      // Build popup HTML
+      const html = `
+        <strong>${tzid}</strong>
+        ${countryName ? `<div style="font-size: 12px; color: #666; margin-top: 2px;">${countryName}</div>` : ''}
+        <div class="info-line">
+          <span class="info-label">UTC Offset:</span> ${utcFormatted}
+        </div>
+        <div class="info-line">
+          <span class="info-label">CET Work Hours:</span> ${work}
+        </div>
+        <div style="margin-top: 8px; font-size: 11px; color: #888;">
+          (When it's 09:00-17:00 in Central Europe)
+        </div>
+      `;
+      
+      // Close existing popup
+      if (currentPopup) {
+        currentPopup.remove();
+      }
+      
+      // Create new popup
+      currentPopup = new maplibregl.Popup({
+        closeButton: true,
+        closeOnClick: false,
+        maxWidth: '300px'
+      })
+        .setLngLat(e.lngLat)
+        .setHTML(html)
+        .addTo(map);
+      
+      // Clear reference when popup closes
+      currentPopup.on('close', () => {
+        currentPopup = null;
+      });
+    });
+
+    // Close popup when clicking on map (outside timezone)
+    map.on('click', (e) => {
+      const features = map.queryRenderedFeatures(e.point, {
+        layers: ['timezones-fill']
+      });
+      
+      if (features.length === 0 && currentPopup) {
+        currentPopup.remove();
+        currentPopup = null;
+      }
+    });
+  </script>
+</body>
+</html>
