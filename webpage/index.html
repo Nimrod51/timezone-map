@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="initial-scale=1,maximum-scale=1,user-scalable=no" />
-  <title>Timezones + Countries — Starter</title>
+  <title>Timezones Relative To CET Worktime</title>
 
   <link href="https://unpkg.com/maplibre-gl/dist/maplibre-gl.css" rel="stylesheet" />
   <style>
@@ -29,38 +29,74 @@
       font-weight: 600;
       color: #666;
     }
+    
+    /* Color scheme switcher */
+    .scheme-switcher {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      background: rgba(255, 255, 255, 0.95);
+      padding: 12px 15px;
+      border-radius: 6px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+      z-index: 10;
+      min-width: 200px;
+    }
+    .scheme-switcher h4 {
+      margin: 0 0 8px 0;
+      font-size: 13px;
+      font-weight: 600;
+      color: #333;
+    }
+    .scheme-switcher select {
+      width: 100%;
+      padding: 6px 8px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      font-size: 13px;
+      background: white;
+      cursor: pointer;
+    }
+    .scheme-switcher select:focus {
+      outline: none;
+      border-color: #3b82f6;
+    }
+    .scheme-description {
+      font-size: 11px;
+      color: #666;
+      margin-top: 6px;
+      line-height: 1.4;
+    }
   </style>
 </head>
 <body>
   <div id="map"></div>
+  
+  <!-- Color scheme switcher -->
+  <div class="scheme-switcher">
+    <h4>Color Scheme</h4>
+    <select id="scheme-selector">
+      <option value="high-contrast">High Contrast</option>
+      <option value="gradient-cool">Cool Gradient (Original)</option>
+      <option value="warm-cool">Warm/Cool</option>
+      <option value="earth-tones">Earth Tones</option>
+      <option value="rainbow">Rainbow</option>
+      <option value="monochrome-blue">Monochrome Blue</option>
+    </select>
+    <div id="scheme-description" class="scheme-description"></div>
+  </div>
 
   <script src="https://unpkg.com/maplibre-gl/dist/maplibre-gl.js"></script>
   <script src="https://unpkg.com/pmtiles@3.0.7/dist/pmtiles.js"></script>
+  <script src="styles.js"></script>
 
   <script>
     // -------------- CONFIG --------------
     const PMTILES_URL = 'world_v3.pmtiles';
     const LAYER = 'countries';   // combined layer with both timezones and countries
     const TIMEZONE_OPACITY = 0.65;
+    let currentScheme = 'high-contrast';  // Default color scheme
     // ------------------------------------
-
-    // Generate color based on work_hours_CET string
-    function getColorForWorkHours(workHours) {
-      if (!workHours) return '#888888';
-      
-      // Extract start hour from work_hours_CET (e.g., "09:00-17:00" -> 9)
-      const match = workHours.match(/^(\d{2}):(\d{2})/);
-      if (!match) return '#888888';
-      
-      const startHour = parseInt(match[1]);
-      const startMinute = parseInt(match[2]);
-      const decimalHour = startHour + (startMinute / 60);
-      
-      // Create a color gradient based on start time (0-24 hours)
-      // Use HSL color space for smooth transitions
-      const hue = (decimalHour / 24) * 360;
-      return `hsl(${hue}, 70%, 55%)`;
-    }
 
     // add pmtiles protocol handler to MapLibre
     const protocol = new pmtiles.Protocol();
@@ -81,6 +117,14 @@
           }
         },
         layers: [
+          // Background (ocean/water color)
+          {
+            id: 'background',
+            type: 'background',
+            paint: {
+              'background-color': '#c6e7ff'  // Light blue ocean color
+            }
+          },
           // timezone polygons (only features with tzid) - color based on work_hours_CET
           {
             id: 'timezones-fill',
@@ -89,20 +133,7 @@
             'source-layer': LAYER,
             filter: ['has', 'tzid'],  // Only show features with timezone data
             paint: {
-              'fill-color': [
-                'interpolate',
-                ['linear'],
-                ['to-number', ['slice', ['get', 'work_hours_CET'], 0, 2]],
-                0, '#d32f2f',    // red (midnight)
-                3, '#e91e63',    // pink
-                6, '#9c27b0',    // purple
-                9, '#673ab7',    // deep purple (9am - CET reference)
-                12, '#3f51b5',   // indigo (noon)
-                15, '#2196f3',   // blue
-                18, '#00bcd4',   // cyan (6pm)
-                21, '#009688',   // teal (9pm)
-                22, '#ff5722'    // deep orange (10pm)
-              ],
+              'fill-color': getColorExpression(currentScheme),
               'fill-opacity': TIMEZONE_OPACITY
             }
           },
@@ -137,11 +168,11 @@
             source: 'world',
             'source-layer': LAYER,
             paint: {
-              'line-color': '#140f0f',
+              'line-color': '#000000',
               'line-width': [
                 'case',
                 ['boolean', ['feature-state', 'hover'], false],
-                4,
+                3,
                 0
               ],
               'line-opacity': 0.9
@@ -264,6 +295,27 @@
         currentPopup.remove();
         currentPopup = null;
       }
+    });
+    
+    // -------------- COLOR SCHEME SWITCHER --------------
+    const schemeSelector = document.getElementById('scheme-selector');
+    const schemeDescription = document.getElementById('scheme-description');
+    
+    // Initialize description
+    const initialScheme = getSchemeInfo(currentScheme);
+    schemeDescription.textContent = initialScheme.description;
+    
+    // Handle scheme changes
+    schemeSelector.addEventListener('change', (e) => {
+      const newScheme = e.target.value;
+      currentScheme = newScheme;
+      
+      // Update map colors
+      map.setPaintProperty('timezones-fill', 'fill-color', getColorExpression(newScheme));
+      
+      // Update description
+      const schemeInfo = getSchemeInfo(newScheme);
+      schemeDescription.textContent = schemeInfo.description;
     });
   </script>
 </body>
