@@ -16,6 +16,7 @@ timezone-map/
 │   └── world_v*.pmtiles      # PMTiles vector tiles (deployed)
 ├── webpage/
 │   ├── index.html            # Interactive map interface
+│   ├── styles.js             # Color scheme definitions
 │   ├── server.py             # HTTP server with Range request support
 │   └── world_v*.pmtiles      # Deployed PMTiles file
 └── add_utc_offset.py         # Script to add UTC & work_hours_CET columns
@@ -47,17 +48,19 @@ Repeat for countries → `countries_v*.geojson`
 
 ### 3. Create Vector Tiles
 
-Generate MBTiles with two layers:
+Generate MBTiles with combined layer:
 
 ```bash
 tippecanoe \
   -o world_v3.mbtiles \
   -Z0 -z6 \
-  --layer=timezones timezones_v*.geojson \
+  --layer=countries timezones_v*.geojson \
   --layer=countries countries_v*.geojson \
   --drop-densest-as-needed \
   --force
 ```
+
+Note: Both datasets go into a single layer called "countries" for optimal rendering.
 
 ### 4. Convert to PMTiles
 
@@ -86,18 +89,32 @@ Server runs at: `http://localhost:8000`
 Open your browser to `http://localhost:8000`
 
 Features:
-- **Color-coded timezones**: Each timezone colored by its work hours start time
-- **Hover highlighting**: White border on hover (fast, uses feature-state)
-- **Click for details**: Popup shows timezone name, UTC offset, CET work hours, and country
-- **Persistent popups**: Click to open, click X or elsewhere to close
+- **Color-coded timezones**: 6 different color schemes showing work hours relative to CET
+- **Color scheme switcher**: Dropdown in top-right corner to change visualization style
+- **Hover for details**: Popup shows timezone name, UTC offset, CET work hours, and country
+- **Fast hover highlighting**: White border on hover (GPU-accelerated with feature-state API)
+- **Ocean blue background**: Cartographic-style water color (#c6e7ff)
+
+Available color schemes:
+- **High Contrast** - 24 distinct colors optimized for clear timezone boundaries
+- **Gradient Cool** - Smooth cyan-to-yellow progression
+- **Warm-Cool** - Red to blue through the day
+- **Earth Tones** - Natural browns, greens, and tans
+- **Rainbow** - Full spectrum color cycle
+- **Monochrome Blue** - Professional blue-gray scale
 
 ### Configuration
 
-Edit [webpage/index.html](webpage/index.html) line 42 to change the PMTiles file:
+Edit configuration variables in [webpage/index.html](webpage/index.html):
 
 ```javascript
-const PMTILES_URL = 'world_v3.pmtiles';  // Change filename here
+const PMTILES_URL = 'world_v3.pmtiles';  // PMTiles file path
+const LAYER = 'countries';                // Vector tile layer name
+const TIMEZONE_OPACITY = 0.65;            // Fill opacity (0-1)
+let currentScheme = 'high-contrast';      // Default color scheme
 ```
+
+Color schemes are defined in [webpage/styles.js](webpage/styles.js). Add new schemes by extending the `COLOR_SCHEMES` object.
 
 ## Data Sources
 
