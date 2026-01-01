@@ -137,11 +137,11 @@
             source: 'world',
             'source-layer': LAYER,
             paint: {
-              'line-color': '#ffffff',
+              'line-color': '#140f0f',
               'line-width': [
                 'case',
                 ['boolean', ['feature-state', 'hover'], false],
-                3,
+                4,
                 0
               ],
               'line-opacity': 0.9
@@ -161,7 +161,7 @@
       map.getCanvas().style.cursor = 'default';
     });
 
-    // Hover effect - use feature-state for performance
+    // Hover effect - use feature-state for performance and show popup
     map.on('mousemove', 'timezones-fill', (e) => {
       if (e.features.length > 0) {
         const feature = e.features[0];
@@ -175,6 +175,10 @@
               { hover: false }
             );
             hoveredFeatureId = null;
+          }
+          if (currentPopup) {
+            currentPopup.remove();
+            currentPopup = null;
           }
           map.getCanvas().style.cursor = 'default';
           return;
@@ -198,11 +202,53 @@
             { source: 'world', sourceLayer: LAYER, id: featureId },
             { hover: true }
           );
+          
+          // Show popup for this feature
+          const props = feature.properties || {};
+          const tzid = props.tzid || 'Unknown';
+          const work = props.work_hours_CET || 'N/A';
+          const utc = props.UTC;
+          const countryName = props.name || '';
+          
+          // Format UTC offset with sign
+          const utcFormatted = (utc !== null && utc !== undefined)
+            ? `UTC${parseInt(utc) >= 0 ? '+' : ''}${utc}` 
+            : 'N/A';
+          
+          // Build popup HTML
+          const html = `
+            <strong>${tzid}</strong>
+            ${countryName ? `<div style="font-size: 12px; color: #666; margin-top: 2px;">${countryName}</div>` : ''}
+            <div class="info-line">
+              <span class="info-label">UTC Offset:</span> ${utcFormatted}
+            </div>
+            <div class="info-line">
+              <span class="info-label">CET Work Hours:</span> ${work}
+            </div>
+            <div style="margin-top: 8px; font-size: 11px; color: #888;">
+              (When it's 09:00-17:00 in Central Europe)
+            </div>
+          `;
+          
+          // Close existing popup
+          if (currentPopup) {
+            currentPopup.remove();
+          }
+          
+          // Create new popup
+          currentPopup = new maplibregl.Popup({
+            closeButton: false,
+            closeOnClick: false,
+            maxWidth: '300px'
+          })
+            .setLngLat(e.lngLat)
+            .setHTML(html)
+            .addTo(map);
         }
       }
     });
 
-    // Remove highlight when leaving
+    // Remove highlight and popup when leaving
     map.on('mouseleave', 'timezones-fill', () => {
       map.getCanvas().style.cursor = 'default';
       
@@ -213,69 +259,8 @@
         );
         hoveredFeatureId = null;
       }
-    });
-
-    // Click to show popup with detailed info
-    map.on('click', 'timezones-fill', (e) => {
-      if (e.features.length === 0) return;
       
-      const feature = e.features[0];
-      const props = feature.properties || {};
-      
-      // Get timezone info
-      const tzid = props.tzid || 'Unknown';
-      const work = props.work_hours_CET || 'N/A';
-      const utc = props.UTC;
-      const countryName = props.name || '';
-      
-      // Format UTC offset with sign
-      const utcFormatted = (utc !== null && utc !== undefined)
-        ? `UTC${parseInt(utc) >= 0 ? '+' : ''}${utc}` 
-        : 'N/A';
-      
-      // Build popup HTML
-      const html = `
-        <strong>${tzid}</strong>
-        ${countryName ? `<div style="font-size: 12px; color: #666; margin-top: 2px;">${countryName}</div>` : ''}
-        <div class="info-line">
-          <span class="info-label">UTC Offset:</span> ${utcFormatted}
-        </div>
-        <div class="info-line">
-          <span class="info-label">CET Work Hours:</span> ${work}
-        </div>
-        <div style="margin-top: 8px; font-size: 11px; color: #888;">
-          (When it's 09:00-17:00 in Central Europe)
-        </div>
-      `;
-      
-      // Close existing popup
       if (currentPopup) {
-        currentPopup.remove();
-      }
-      
-      // Create new popup
-      currentPopup = new maplibregl.Popup({
-        closeButton: true,
-        closeOnClick: false,
-        maxWidth: '300px'
-      })
-        .setLngLat(e.lngLat)
-        .setHTML(html)
-        .addTo(map);
-      
-      // Clear reference when popup closes
-      currentPopup.on('close', () => {
-        currentPopup = null;
-      });
-    });
-
-    // Close popup when clicking on map (outside timezone)
-    map.on('click', (e) => {
-      const features = map.queryRenderedFeatures(e.point, {
-        layers: ['timezones-fill']
-      });
-      
-      if (features.length === 0 && currentPopup) {
         currentPopup.remove();
         currentPopup = null;
       }

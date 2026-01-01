@@ -104,9 +104,6 @@ const PMTILES_URL = 'world_v3.pmtiles';  // Change filename here
 **Timezone Shapes (based on OSM):**
 https://github.com/evansiroky/timezone-boundary-builder
 
-**Timezone Database:**
-https://www.iana.org/time-zones
-
 ## Requirements
 
 - Python 3.x with `pytz` library
